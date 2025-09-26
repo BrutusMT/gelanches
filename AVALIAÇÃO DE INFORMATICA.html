@@ -1,0 +1,293 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Prova - Modo Kiosk</title>
+  <style>
+    :root{--bg:#0f1724;--card:#0b1220;--accent:#06b6d4;--text:#e6eef6}
+    *{box-sizing:border-box;font-family:Inter,Segoe UI,Arial;margin:0}
+    body{background:linear-gradient(180deg,#031025 0%,#071427 100%);color:var(--text);min-height:100vh;display:flex;align-items:center;justify-content:center;padding:20px}
+    .wrap{width:100%;max-width:980px}
+    .card{background:linear-gradient(180deg,rgba(255,255,255,0.02),rgba(0,0,0,0.03));padding:18px;border-radius:12px;box-shadow:0 8px 30px rgba(2,6,23,0.7)}
+    header{display:flex;justify-content:space-between;align-items:center;margin-bottom:12px}
+    h1{font-size:20px}
+    .meta{font-size:13px;color:#9fb3c4}
+    #startScreen{display:grid;gap:12px}
+    button.primary{background:var(--accent);border:none;padding:10px 14px;border-radius:8px;color:#042026;font-weight:700;cursor:pointer;transition:transform 0.2s}
+    button.primary:hover{transform:scale(1.05)}
+    input[type=text]{padding:8px;border-radius:6px;border:1px solid #334155;background:#0b1220;color:var(--text);width:100%}
+    .question{margin:12px 0;padding:12px;background:rgba(255,255,255,0.02);border-radius:8px;opacity:0;transform:translateY(20px);animation:fadeIn 0.5s forwards}
+    @keyframes fadeIn{to{opacity:1;transform:translateY(0)}}
+    .options{display:flex;flex-direction:column;gap:8px;margin-top:8px}
+    .opt{background:rgba(255,255,255,0.03);padding:8px;border-radius:6px;cursor:pointer;transition:background 0.3s,transform 0.2s}
+    .opt:hover{background:rgba(6,182,212,0.1);transform:scale(1.02)}
+    .opt.selected{outline:2px solid rgba(6,182,212,0.5);background:rgba(6,182,212,0.2);pointer-events:none}
+    footer{display:flex;justify-content:space-between;align-items:center;margin-top:14px}
+    .timer{font-weight:700}
+    .overlay{position:fixed;inset:0;background:rgba(0,0,0,0.75);display:flex;align-items:center;justify-content:center;z-index:9999;color:white}
+    .modal{background:#041526;padding:20px;border-radius:12px;max-width:680px}
+    .small{font-size:13px;color:#9fb3c4}
+    .hidden{display:none}
+    .result{padding:12px;background:linear-gradient(90deg,#031622,#042232);border-radius:10px}
+    .danger{color:#ff7b7b}
+    @media(max-width:600px){.wrap{padding:8px}.card{padding:12px}h1{font-size:18px}}
+  </style>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+</head>
+<body>
+  <div class="wrap card">
+    <header>
+      <div>
+        <h1>Prova - Modo Kiosk</h1>
+        <div class="meta">Instrutor: Painel automático • Não permita sair da tela.</div>
+      </div>
+      <div class="meta">Violação: <span id="violations">0</span></div>
+    </header>
+
+    <main id="startScreen">
+      <p>Esta prova só poderá ser iniciada <strong>uma vez</strong>. Ao iniciar, permita o modo tela cheia quando solicitado.</p>
+      <label for="studentName">Nome do Aluno:</label>
+      <input type="text" id="studentName" placeholder="Digite seu nome" required>
+      <div style="display:flex;gap:8px;margin-top:8px">
+        <button id="startBtn" class="primary">Iniciar Prova</button>
+      </div>
+    </main>
+
+    <form id="quiz" class="hidden">
+      <div id="questions"></div>
+      <footer>
+        <div class="timer">Tempo restante: <span id="timerDisplay">00:00</span></div>
+        <div><button id="submitBtn" type="button" class="primary">Enviar Prova</button></div>
+      </footer>
+    </form>
+
+    <div id="result" class="hidden">
+      <h3>Resultado</h3>
+      <div id="resultBox" class="result"></div>
+      <div style="margin-top:12px;display:flex;gap:8px"><button id="downloadPdf">Baixar (PDF)</button></div>
+    </div>
+  </div>
+
+  <div id="overlay" class="overlay hidden">
+    <div class="modal">
+      <h3 id="overlayTitle">Você saiu da prova</h3>
+      <p id="overlayMsg">Tempo de punição: <span id="penaltyTimer">30</span>s</p>
+      <p class="small">A prova ficará bloqueada até o fim da punição.</p>
+      <div style="margin-top:10px"><button id="overlayClose" class="primary">OK (aguarde)</button></div>
+    </div>
+  </div>
+
+  <script>
+const QUESTIONS = [
+  {q:"Q1: Qual o atalho para copiar um arquivo no Windows?",opts:["Ctrl + V","Ctrl + C","Ctrl + X","Ctrl + Z"],answer:1},
+  {q:"Q2: Onde ficam armazenados os arquivos apagados temporariamente?",opts:["Desktop","Painel de Controle","Lixeira","Downloads"],answer:2},
+  {q:"Q3: Qual a tecla de atalho para criar uma nova pasta no Windows?",opts:["Ctrl + P","Ctrl + N","Ctrl + Shift + N","Alt + N"],answer:2},
+  {q:"Q4: O que é um diretório?",opts:["Um atalho","Uma pasta que organiza arquivos","Um antivírus","Um programa de edição"],answer:1},
+  {q:"Q5: Qual extensão pertence a um arquivo do PowerPoint?",opts:[".pptx",".docx",".xlsx",".jpg"],answer:0},
+  {q:"Q6: Para renomear um arquivo rapidamente no Windows, usamos a tecla:",opts:["F1","F2","F5","F12"],answer:1},
+  {q:"Q7: Qual atalho abre o explorador de arquivos no Windows?",opts:["Windows + R","Windows + E","Ctrl + E","Alt + Tab"],answer:1},
+  {q:"Q8: Qual programa é usado para criar apresentações de slides?",opts:["Word","Excel","PowerPoint","Paint"],answer:2},
+  {q:"Q9: Qual programa é usado principalmente para edição de textos?",opts:["Excel","PowerPoint","Word","Bloco de Notas"],answer:2},
+  {q:"Q10: O que significa 'Área de Trabalho'?",opts:["Um jogo","A tela principal do Windows","Um editor de texto","Uma pasta de imagens"],answer:1},
+  {q:"Q11: Qual o atalho para colar um texto?",opts:["Ctrl + V","Ctrl + C","Ctrl + X","Ctrl + Z"],answer:0},
+  {q:"Q12: Qual programa é usado para criar planilhas?",opts:["Word","Excel","PowerPoint","Paint"],answer:1},
+  {q:"Q13: No Windows, qual opção usamos para mudar o papel de parede?",opts:["Painel de Controle > Aparência","Windows Update","Lixeira","Explorador de Arquivos"],answer:0},
+  {q:"Q14: Qual tecla de atalho desfaz a última ação?",opts:["Ctrl + A","Ctrl + Z","Ctrl + V","Ctrl + P"],answer:1},
+  {q:"Q15: O que é um arquivo .docx?",opts:["Imagem","Planilha","Texto do Word","Apresentação"],answer:2},
+  {q:"Q16: Para alternar entre janelas abertas no Windows usamos:",opts:["Alt + F4","Alt + Tab","Ctrl + Tab","Ctrl + F4"],answer:1},
+  {q:"Q17: Qual programa do Windows é usado para desenhar?",opts:["Bloco de Notas","Paint","Excel","Word"],answer:1},
+  {q:"Q18: Qual ferramenta do Word cria listas numeradas ou com marcadores?",opts:["Formatar Fonte","Parágrafo","Listas","Marcadores"],answer:3},
+  {q:"Q19: O que significa 'atalho' no Windows?",opts:["Uma cópia de arquivo","Um link rápido para abrir arquivos/pastas/programas","Um programa de antivírus","Um tipo de pasta especial"],answer:1},
+  {q:"Q20: Qual o atalho para salvar um arquivo?",opts:["Ctrl + O","Ctrl + S","Ctrl + P","Ctrl + N"],answer:1},
+  {q:"Q21: Para imprimir um documento no Word, qual atalho usamos?",opts:["Ctrl + P","Ctrl + I","Ctrl + V","Ctrl + N"],answer:0},
+  {q:"Q22: O que significa 'Excel'?",opts:["Editor de imagens","Planilhas eletrônicas","Editor de textos","Programa de slides"],answer:1},
+  {q:"Q23: Qual tecla de função atualiza a página ou janela?",opts:["F2","F3","F5","F12"],answer:2},
+  {q:"Q24: Onde podemos ajustar data e hora do computador?",opts:["Configurações","Paint","Word","Excel"],answer:0},
+  {q:"Q25: Qual programa permite criar gráficos baseados em dados?",opts:["Word","Excel","PowerPoint","Bloco de Notas"],answer:1},
+  {q:"Q26: No Windows, o que é a 'Lixeira'?",opts:["Um programa de edição","Uma pasta para arquivos excluídos","Um antivírus","Um tipo de documento"],answer:1},
+  {q:"Q27: Qual opção no Word altera o tamanho da letra?",opts:["Fonte","Layout da Página","Revisão","Exibir"],answer:0},
+  {q:"Q28: O que significa 'Ctrl + A' no Word?",opts:["Selecionar tudo","Salvar","Colar","Abrir"],answer:0},
+  {q:"Q29: Qual programa é mais usado para escrever textos longos com formatação?",opts:["Paint","Excel","Word","Bloco de Notas"],answer:2},
+  {q:"Q30: No PowerPoint, os 'slides' são:",opts:["Imagens da internet","Páginas de apresentação","Tabelas numéricas","Arquivos de texto"],answer:1},
+  {q:"Q31: Para criar uma nova aba no navegador usamos:",opts:["Ctrl + N","Ctrl + T","Ctrl + W","Ctrl + Q"],answer:1},
+  {q:"Q32: O que significa 'Ctrl + X'?",opts:["Copiar","Recortar","Colar","Desfazer"],answer:1},
+  {q:"Q33: Qual programa vem no Windows para anotações rápidas?",opts:["Paint","Word","Bloco de Notas","Excel"],answer:2},
+  {q:"Q34: Para mudar a resolução da tela, usamos:",opts:["Configurações de Vídeo","Excel","Word","Paint"],answer:0},
+  {q:"Q35: O que é um atalho 'Ctrl + F'?",opts:["Salvar","Localizar","Fechar","Copiar"],answer:1},
+  {q:"Q36: Para sair de um programa no Windows usamos:",opts:["Ctrl + S","Alt + F4","Ctrl + Z","Shift + F3"],answer:1},
+  {q:"Q37: Qual ferramenta é usada para criar apresentações escolares?",opts:["Excel","PowerPoint","Word","Bloco de Notas"],answer:1},
+  {q:"Q38: O que é a 'Barra de Tarefas' do Windows?",opts:["Um antivírus","Um menu para acessar programas abertos","Um editor de texto","Um atalho de pastas"],answer:1},
+  {q:"Q39: Qual o atalho para selecionar tudo em um documento?",opts:["Ctrl + T","Ctrl + A","Ctrl + S","Ctrl + D"],answer:1},
+  {q:"Q40: No Word, a verificação ortográfica pode ser acessada pelo menu:",opts:["Inserir","Revisão","Layout","Arquivo"],answer:1},
+];
+    let timeLeft = 0;
+    let timerInterval = null;
+    let penaltySeconds = 30;
+    let violations = 0;
+    let penaltyActive = false;
+    let penaltyHistory = [];
+    let examStarted = false;
+    let studentName = "";
+
+    const startBtn = document.getElementById('startBtn');
+    const quizForm = document.getElementById('quiz');
+    const questionsDiv = document.getElementById('questions');
+    const timerDisplay = document.getElementById('timerDisplay');
+    const overlay = document.getElementById('overlay');
+    const penaltyTimerSpan = document.getElementById('penaltyTimer');
+    const violationsSpan = document.getElementById('violations');
+    const resultBox = document.getElementById('resultBox');
+    const resultDiv = document.getElementById('result');
+    const startScreen = document.getElementById('startScreen');
+    const studentNameInput = document.getElementById('studentName');
+
+    function buildQuestions(){
+      questionsDiv.innerHTML = '';
+      QUESTIONS.forEach((item,i)=>{
+        const div = document.createElement('div');div.className='question';
+        div.innerHTML = `<div><strong>${item.q}</strong></div>`;
+        const opts = document.createElement('div');opts.className='options';
+        item.opts.forEach((o,idx)=>{
+          const b = document.createElement('div');b.className='opt';b.tabIndex=0;b.innerText=o;
+          b.addEventListener('click',()=>select(i,idx,b));
+          b.addEventListener('keydown',(e)=>{if(e.key==='Enter')select(i,idx,b)});
+          opts.appendChild(b);
+        });
+        div.appendChild(opts);
+        questionsDiv.appendChild(div);
+      });
+    }
+
+    function select(qIndex,optIndex,elem){
+      const qEl = questionsDiv.children[qIndex];
+      if(qEl.dataset.answered) return;
+      Array.from(qEl.querySelectorAll('.opt')).forEach((el,idx)=>{
+        el.classList.toggle('selected', idx===optIndex);
+        if(idx!==optIndex) el.style.pointerEvents='none';
+      });
+      qEl.dataset.selected = optIndex;
+      qEl.dataset.answered = true;
+    }
+
+    function getAnswers(){
+      return Array.from(questionsDiv.children).map((qEl,idx)=>{
+        const sel = qEl.dataset.selected;
+        return sel===undefined?null:parseInt(sel,10);
+      });
+    }
+
+    function startTimer(){
+      clearInterval(timerInterval);
+      timerInterval = setInterval(()=>{
+        if(!penaltyActive){
+          timeLeft--;
+          if(timeLeft<=0){
+            clearInterval(timerInterval);submitQuiz();
+          }
+          updateTimerDisplay();
+        }
+      },1000);
+    }
+
+    function updateTimerDisplay(){
+      const mm = String(Math.floor(timeLeft/60)).padStart(2,'0');
+      const ss = String(timeLeft%60).padStart(2,'0');
+      timerDisplay.textContent = `${mm}:${ss}`;
+    }
+
+    function showOverlay(seconds){
+      penaltyActive = true;
+      overlay.classList.remove('hidden');
+      let s = seconds;penaltyTimerSpan.textContent=s;
+      const iv = setInterval(()=>{
+        s--;penaltyTimerSpan.textContent=s;
+        if(s<=0){clearInterval(iv);penaltyActive=false;overlay.classList.add('hidden');}
+      },1000);
+    }
+
+    function triggerViolation(){
+      violations++;violationsSpan.textContent=violations;
+      penaltyHistory.push({time:new Date().toLocaleTimeString(),penalty:penaltySeconds});
+      if(timeLeft>penaltySeconds) timeLeft-=penaltySeconds; else timeLeft=0;
+      updateTimerDisplay();
+      showOverlay(penaltySeconds);
+    }
+
+    document.addEventListener('visibilitychange',()=>{if(document.hidden) triggerViolation();});
+    window.addEventListener('blur',()=>{if(!penaltyActive) triggerViolation();});
+
+    document.addEventListener('contextmenu',e=>e.preventDefault());
+    document.addEventListener('copy',e=>e.preventDefault());
+    document.addEventListener('cut',e=>e.preventDefault());
+    document.addEventListener('paste',e=>e.preventDefault());
+
+    startBtn.addEventListener('click',async()=>{
+      if(examStarted) return;
+      if(!studentNameInput.value.trim()){alert('Digite seu nome antes de iniciar.');return;}
+      studentName = studentNameInput.value.trim();
+      examStarted = true;
+      startBtn.disabled = true;
+      studentNameInput.disabled = true;
+      timeLeft = 30*60; // tempo fixo de 30 min
+      penaltySeconds = 30; // punição fixa de 30s
+      buildQuestions();
+      startScreen.classList.add('hidden');
+      quizForm.classList.remove('hidden');
+      updateTimerDisplay();
+      startTimer();
+      try{if(document.documentElement.requestFullscreen){await document.documentElement.requestFullscreen();}}catch(err){}
+    });
+
+    document.getElementById('submitBtn').addEventListener('click',submitQuiz);
+
+    function submitQuiz(){
+      clearInterval(timerInterval);
+      const answers = getAnswers();
+      let correct=0;let total=QUESTIONS.length;
+      const details = [];
+      QUESTIONS.forEach((q,i)=>{
+        const a = answers[i];
+        const ok = (a!==null && a===q.answer);
+        if(ok) correct++;
+        details.push({question:q.q,selected: a===null?null:q.opts[a],correct:q.opts[q.answer],ok});
+      });
+      const percent = Math.round((correct/total)*100);
+      resultBox.innerHTML = `<strong>Aluno:</strong> ${studentName}<br>`+
+        `Acertos: <strong>${correct}</strong> / ${total} (${percent}%)<br>` +
+        `Violações: ${violations}<br>` +
+        `<div style="max-height:260px;overflow:auto;margin-top:8px">` +
+        details.map((d,i)=>`<div><strong>Q${i+1}</strong> ${d.ok?'✅':'❌'} — Sua: ${d.selected||'<em>não respondeu</em>'} • Correta: ${d.correct}</div>`).join('') +
+        `</div><br><strong>Penalidades:</strong><br>` + penaltyHistory.map((p,i)=>`#${i+1} em ${p.time} — -${p.penalty}s`).join('<br>');
+      quizForm.classList.add('hidden');
+      resultDiv.classList.remove('hidden');
+      window.latestResult = {studentName,timestamp:new Date().toISOString(),timeLeft,violations,penaltyHistory,score:{correct,total,percent},details};
+    }
+
+    document.getElementById('downloadPdf').addEventListener('click',()=>{
+      if(!window.latestResult){return;}
+      const { jsPDF } = window.jspdf;
+      const doc = new jsPDF();
+      doc.setFontSize(12);
+      doc.text(`Aluno: ${window.latestResult.studentName}`,10,10);
+      doc.text(`Data: ${new Date(window.latestResult.timestamp).toLocaleString()}`,10,20);
+      doc.text(`Acertos: ${window.latestResult.score.correct} / ${window.latestResult.score.total} (${window.latestResult.score.percent}%)`,10,30);
+      doc.text(`Violações: ${window.latestResult.violations}`,10,40);
+      doc.text('Penalidades:',10,50);
+      window.latestResult.penaltyHistory.forEach((p,i)=>{
+        doc.text(`#${i+1} em ${p.time} — -${p.penalty}s`,15,60+i*10);
+      });
+      let y = 70 + window.latestResult.penaltyHistory.length*10;
+      doc.text('Detalhes:',10,y);
+      window.latestResult.details.forEach((d,i)=>{
+        y+=10;
+        if(y>270){doc.addPage();y=20;}
+        doc.text(`Q${i+1}: ${d.ok?'✅':'❌'} Sua: ${d.selected||'não respondeu'} | Correta: ${d.correct}`,10,y);
+      });
+      doc.save(`resultado_${window.latestResult.studentName}.pdf`);
+    });
+
+    buildQuestions();
+  </script>
+</body>
+</html>
